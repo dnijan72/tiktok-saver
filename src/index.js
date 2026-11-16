@@ -1,4 +1,4 @@
-import { getPost, fetchVideo, UserError } from "./tiktok.js";
+import { getPost, fetchVideo, diagnose, UserError } from "./tiktok.js";
 import { info } from "./info.js";
 import { PAGE } from "./page.js";
 import { ICONS, MANIFEST, SERVICE_WORKER } from "./assets.js";
@@ -67,6 +67,10 @@ export default {
     }
     if (request.method === "GET" && url.pathname === "/sw.js") {
       return new Response(SERVICE_WORKER, { headers: { "content-type": "text/javascript", "cache-control": "no-cache" } });
+    }
+    if (request.method === "GET" && url.pathname === "/api/diag") {
+      if (!url.searchParams.get("url")) return json({ ok: false, error: "Add ?url=<tiktok link>" }, 400);
+      return json(await diagnose(url.searchParams.get("url")));
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
       return json({ ok: true, captions: !!env.ANTHROPIC_API_KEY, locked: !!env.ACCESS_TOKEN });
