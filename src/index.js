@@ -85,7 +85,7 @@ export default {
         if (url.pathname === "/api/subscribe") return json({ ok: true, devices: await stub.subscribe(body.subscription) });
         if (url.pathname === "/api/jobs") {
           if (!body.url) throw new UserError("Paste a TikTok link first.");
-          const input = { url: String(body.url).slice(0, 500), account: body.account, note: String(body.note || "").slice(0, 300), skipCaption: !!body.skipCaption };
+          const input = { url: String(body.url).slice(0, 500), account: body.account, note: String(body.note || "").slice(0, 300), skipCaption: !!body.skipCaption, instagram: String(body.instagram || "").slice(0, 100) };
           return json({ ok: true, job: await stub.create(input) });
         }
         if (url.pathname === "/api/job") {

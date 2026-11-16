@@ -18,7 +18,7 @@ export function igFromText(text) {
   if (m && clean(m[1])) return clean(m[1]);
   // "IG: handle", "ig - @handle", "insta @handle", "Instagram: handle", "📸 @handle"
   // A separator or @ is required, so "Insta is my main app" doesn't count.
-  m = t.match(/(?:\big\b|\binsta(?:gram)?\b|📸|📷)(?:\s*[:\-–—|/]+\s*@?|\s*@)([A-Za-z0-9._]{2,30})/i);
+  m = t.match(/(?:\big\b|\binsta(?:gram)?\b|📸|📷)(?:\s*(?:[:\-–—|/>→➡️👉]|➡)+\s*@?|\s*@)([A-Za-z0-9._]{2,30})/iu);
   if (m && clean(m[1])) return clean(m[1]);
   return null;
 }
@@ -35,8 +35,17 @@ function normalizeLink(link) {
   }
 }
 
-// Returns { handle, source } where source is "bio", "link" or null.
-export async function findInstagram({ signature, bioLink }, fetchImpl = fetch) {
+// A handle typed by Dylan: "@name", "name" or an instagram.com link.
+export function manualInstagram(value) {
+  const v = String(value || "").trim();
+  if (!v) return null;
+  return igFromText(v) || clean(v.replace(/^@/, "").split(/[/?\s]/)[0]);
+}
+
+// Returns { handle, source } where source is "tiktok", "bio", "link" or null.
+export async function findInstagram({ signature, bioLink, insId }, fetchImpl = fetch) {
+  const linked = clean(insId);
+  if (linked) return { handle: linked, source: "tiktok" };
   const fromBio = igFromText(signature);
   if (fromBio) return { handle: fromBio, source: "bio" };
 

@@ -73,6 +73,7 @@ details{font-size:14px;color:var(--muted)}
         <option value="apartmentsnyc">@apartmentsnyc</option>
       </select>
     </div>
+    <input id="igIn" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Their Instagram, if they sent it (optional)">
     <input id="note" type="text" placeholder="Optional: what happens in the video">
     <button class="accent" id="go" type="button">Get caption + video</button>
     <div class="status" id="status" role="status" aria-live="polite"></div>
@@ -85,6 +86,8 @@ details{font-size:14px;color:var(--muted)}
 
   <div class="card" id="result" hidden>
     <div class="meta" id="meta"></div>
+    <label for="igEdit">Instagram credit</label>
+    <input id="igEdit" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="@handle (empty = credit their TikTok)">
     <label for="caption">Caption</label>
     <textarea id="caption"></textarea>
     <div class="row">
@@ -116,6 +119,7 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
   const params=new URLSearchParams(location.search); if(params.get("url")) $("link").value=params.get("url");
   if(params.get("account")&&$("account").querySelector('option[value="'+params.get("account")+'"]')) $("account").value=params.get("account");
   const videoOnly=params.get("caption")==="0";
+  if(params.get("ig")) $("igIn").value=params.get("ig");
 
   function say(el,t,err){ el.textContent=t||""; el.classList.toggle("err",!!err); }
   const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -131,15 +135,34 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
 
   function render(j){
     lastUrl=j.url; lastName="tiktok-"+(j.tiktok||"video")+".mp4";
-    const ig=j.instagram?'<b>@'+esc(j.instagram)+'</b> on Instagram<span class="tag ok">from '+(j.instagramFoundIn==="bio"?"bio":"link in bio")+'</span>'
+    const from={manual:"you entered",tiktok:"linked on TikTok",bio:"bio",link:"link in bio"}[j.instagramFoundIn]||"bio";
+    const ig=j.instagram?'<b>@'+esc(j.instagram)+'</b> on Instagram<span class="tag ok">'+esc(from)+'</span>'
       :'No Instagram found<span class="tag warn">crediting TikTok</span>';
-    $("meta").innerHTML='<div>Creator: <b>'+esc(j.tiktokName||"")+'</b> (@'+esc(j.tiktok||"?")+' on TikTok)</div><div>'+ig+'</div>'+(j.hasVideo?"":'<div class="status err">Video file not found. Caption still works.</div>');
+    $("meta").innerHTML='<div>'+ig+'</div><div>TikTok: <b>'+esc(j.tiktokName||"")+'</b> (@'+esc(j.tiktok||"?")+')</div>'+(j.hasVideo?"":'<div class="status err">Video file not found. Caption still works.</div>');
+    current={tiktok:j.tiktok};
+    $("igEdit").value=j.instagram?"@"+j.instagram:"";
     $("caption").value=j.full||j.credit||"";
     $("raw").innerHTML='<b>TikTok caption:</b> '+esc(j.tiktokCaption||"(none)")+'<br><b>Bio:</b> '+esc(j.bio||"(none)")+(j.bioLink?'<br><b>Link:</b> '+esc(j.bioLink):"");
     $("result").hidden=false; $("save").disabled=!j.hasVideo;
     say($("status"),j.captionError?"Caption didn't generate: "+j.captionError:"");
     say($("saveStatus"),"");
   }
+
+  let current={};
+  const NL=String.fromCharCode(10);
+  function creditFor(v){
+    v=String(v||"").trim();
+    const i=v.toLowerCase().indexOf("instagram.com/"); if(i>=0) v=v.slice(i+14);
+    v=v.replace(/^@+/,"").split(/[ ?/]/)[0];
+    if(v) return "🎥: @"+v;
+    return current.tiktok?"🎥: @"+current.tiktok+" on TikTok":"";
+  }
+  $("igEdit").addEventListener("input",()=>{
+    const lines=$("caption").value.trimEnd().split(NL);
+    while(lines.length&&(lines[lines.length-1].startsWith("🎥:")||!lines[lines.length-1].trim())) lines.pop();
+    const body=lines.join(NL).trim(); const c=creditFor($("igEdit").value);
+    $("caption").value=[body,c].filter(Boolean).join(NL+NL);
+  });
 
   let polling=null;
   async function watch(id){
@@ -165,10 +188,11 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
     if(!url){ say($("status"),"Paste a TikTok link first.",true); return; }
     $("go").disabled=true; $("result").hidden=true; say($("status"),"Starting…");
     try{
-      const r=await post("/api/jobs",{url,account:$("account").value,note:$("note").value.trim(),skipCaption:videoOnly});
+      const r=await post("/api/jobs",{url,account:$("account").value,note:$("note").value.trim(),instagram:$("igIn").value.trim(),skipCaption:videoOnly});
       const j=await r.json();
       if(!j.ok){ if(r.status===401){ $("codeCard").hidden=false; } throw new Error(j.error||"Something went wrong."); }
       try{ history.replaceState(null,"","/?job="+j.job.id); }catch(e){}
+      $("igIn").value=""; $("note").value="";
       loadRecent(); watch(j.job.id);
     }catch(e){ $("go").disabled=false; say($("status"),e.message,true); }
   };

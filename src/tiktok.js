@@ -154,6 +154,7 @@ export async function getPost(input) {
         handle: a.uniqueId || handleFromUrl(url),
         nickname: a.nickname || "",
         signature: a.signature || "",
+        insId: a.insId || a.ins_id || "",
         bioLink: (a.bioLink && a.bioLink.link) || "",
         videoUrl: videoUrlFromItem(item),
         cookies: cookieString(res),
@@ -193,7 +194,7 @@ export async function getProfile(handle) {
     const res = await fetch("https://www.tiktok.com/@" + encodeURIComponent(handle), { headers: HTML_HEADERS });
     const user = userFromPage(await res.text());
     if (!user) return { signature: "", bioLink: "" };
-    return { signature: user.signature || "", bioLink: (user.bioLink && user.bioLink.link) || "" };
+    return { signature: user.signature || "", bioLink: (user.bioLink && user.bioLink.link) || "", insId: user.insId || user.ins_id || "" };
   } catch {
     return { signature: "", bioLink: "" };
   }

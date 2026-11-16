@@ -86,3 +86,14 @@ test("serves the app icon and manifest", async () => {
   r = await worker.fetch(new Request("https://x.dev/"), {});
   assert.match(await r.text(), /apple-touch-icon/);
 });
+
+test("manual Instagram and stronger detection", async () => {
+  const { manualInstagram } = await import("../src/instagram.js");
+  assert.equal(manualInstagram("@Dee.Shoots"), "dee.shoots");
+  assert.equal(manualInstagram("https://www.instagram.com/dee.shoots/?hl=en"), "dee.shoots");
+  assert.equal(manualInstagram("dee_shoots "), "dee_shoots");
+  assert.equal(manualInstagram(""), null);
+  assert.equal(igFromText("IG ➡️ nycwalks"), "nycwalks");
+  assert.equal(igFromText("insta → @bk.food"), "bk.food");
+  assert.deepEqual(await findInstagram({ signature: "", bioLink: "", insId: "linked.one" }, async () => ({ text: async () => "" })), { handle: "linked.one", source: "tiktok" });
+});
