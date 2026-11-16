@@ -40,7 +40,9 @@ async function info(body, env) {
 
   let caption = "";
   let captionError = null;
-  if (env.ANTHROPIC_API_KEY) {
+  if (body.skipCaption) {
+    // Claude wrote the caption in chat; only the video and credit are needed.
+  } else if (env.ANTHROPIC_API_KEY) {
     try {
       caption = await writeCaption(env, { account: body.account, desc: post.desc, nickname: post.nickname, handle: post.handle, note: body.note });
     } catch (e) {

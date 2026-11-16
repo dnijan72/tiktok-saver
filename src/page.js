@@ -92,6 +92,8 @@ details{font-size:14px;color:var(--muted)}
   $("codeCard").hidden=!!token;
   try{ const a=localStorage.getItem("ts_account"); if(a) $("account").value=a; }catch(e){}
   const params=new URLSearchParams(location.search); if(params.get("url")) $("link").value=params.get("url");
+  if(params.get("account")&&$("account").querySelector('option[value="'+params.get("account")+'"]')) $("account").value=params.get("account");
+  const videoOnly=params.get("caption")==="0";
 
   function say(el,t,err){ el.textContent=t||""; el.classList.toggle("err",!!err); }
   const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -111,7 +113,7 @@ details{font-size:14px;color:var(--muted)}
     if(!url){ say($("status"),"Paste a TikTok link first.",true); return; }
     $("go").disabled=true; $("result").hidden=true; say($("status"),"Reading the TikTok and writing the caption…");
     try{
-      const r=await post("/api/info",{url,account:$("account").value,note:$("note").value.trim()});
+      const r=await post("/api/info",{url,account:$("account").value,note:$("note").value.trim(),skipCaption:videoOnly});
       const j=await r.json();
       if(!j.ok){ if(r.status===401){ $("codeCard").hidden=false; } throw new Error(j.error||"Something went wrong."); }
       lastUrl=j.url; lastName="tiktok-"+(j.tiktok||"video")+".mp4";
@@ -152,6 +154,9 @@ details{font-size:14px;color:var(--muted)}
     }catch(e){ if(e&&e.name==="AbortError") say($("saveStatus"),""); else say($("saveStatus"),e.message,true); }
     finally{ $("save").disabled=false; }
   };
+
+  // Links from Claude: ?url=...&go=1 runs right away (caption=0 skips the caption, since Claude wrote it in chat).
+  if(params.get("url")&&params.get("go")==="1"&&token) $("go").click();
 })();
 </script>
 </body>
