@@ -84,41 +84,57 @@ export function userFromPage(html) {
   return (ud && ud.userInfo && ud.userInfo.user) || null;
 }
 
-// Best video address, preferring the no-watermark play address at the highest bitrate.
-export function videoUrlFromItem(item) {
+// Every video address TikTok gives, best first: highest bitrate, CDN hosts before
+// www.tiktok.com/aweme/... (that one needs a logged-in browser and returns a web page).
+export function videoUrlsFromItem(item) {
   const v = (item && item.video) || {};
   const rates = Array.isArray(v.bitrateInfo) ? v.bitrateInfo.slice() : [];
   rates.sort((a, b) => (b.Bitrate || 0) - (a.Bitrate || 0));
-  for (const r of rates) {
-    const list = r && r.PlayAddr && r.PlayAddr.UrlList;
-    if (Array.isArray(list) && list.length) return list[list.length - 1] || list[0];
-  }
-  return v.playAddr || v.downloadAddr || null;
+  const all = [];
+  for (const r of rates) for (const u of (r && r.PlayAddr && r.PlayAddr.UrlList) || []) all.push(u);
+  all.push(v.playAddr, v.downloadAddr);
+  const seen = new Set();
+  const list = all.filter((u) => typeof u === "string" && /^https?:/.test(u) && !seen.has(u) && seen.add(u));
+  const web = (u) => /\/\/www\.tiktok\.com\//.test(u);
+  return list.filter((u) => !web(u)).concat(list.filter(web)).slice(0, 8);
 }
 
+export function videoUrlFromItem(item) {
+  return videoUrlsFromItem(item)[0] || null;
+}
+
+// Backup downloader. Returns { videoUrl, videoUrls, ... } or { error }.
 async function tikwm(url) {
-  try {
-    const res = await fetch("https://www.tikwm.com/api/?hd=1&url=" + encodeURIComponent(url), {
-      headers: { "User-Agent": UA, "Accept": "application/json" },
-    });
-    const j = await res.json();
-    if (!j || j.code !== 0 || !j.data) return null;
+  const parse = (j) => {
+    if (!j || j.code !== 0 || !j.data) return { error: "tikwm said " + ((j && (j.msg || j.code)) || "nothing") };
     const d = j.data;
     const abs = (u) => (u && u.startsWith("/") ? "https://www.tikwm.com" + u : u);
     if (Array.isArray(d.images) && d.images.length) {
       return { photo: true, desc: d.title || "", handle: d.author && d.author.unique_id, nickname: d.author && d.author.nickname };
     }
     const urls = [abs(d.hdplay), abs(d.play), abs(d.wmplay)].filter(Boolean);
-    return {
-      videoUrl: urls[0],
-      videoUrls: urls,
-      desc: d.title || "",
-      handle: d.author && d.author.unique_id,
-      nickname: d.author && d.author.nickname,
-    };
-  } catch {
-    return null;
+    return { videoUrl: urls[0], videoUrls: urls, desc: d.title || "", handle: d.author && d.author.unique_id, nickname: d.author && d.author.nickname };
+  };
+  const errors = [];
+  const tries = [
+    () => fetch("https://www.tikwm.com/api/?hd=1&url=" + encodeURIComponent(url), { headers: { "User-Agent": UA, "Accept": "application/json" } }),
+    () => fetch("https://www.tikwm.com/api/", { method: "POST", headers: { "User-Agent": UA, "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body: "hd=1&url=" + encodeURIComponent(url) }),
+  ];
+  for (const go of tries) {
+    try {
+      const res = await go();
+      const text = await res.text();
+      let j = null;
+      try { j = JSON.parse(text); } catch { errors.push("tikwm HTTP " + res.status + " (not JSON)"); continue; }
+      const r = parse(j);
+      if (!r.error) return r;
+      errors.push(r.error);
+      if (/limit/i.test(r.error)) await new Promise((ok) => setTimeout(ok, 1200));
+    } catch (e) {
+      errors.push("tikwm " + String((e && e.message) || e));
+    }
   }
+  return { error: errors.join(", ") };
 }
 
 async function oembed(url) {
@@ -159,6 +175,7 @@ export async function getPost(input) {
         insId: a.insId || a.ins_id || "",
         bioLink: (a.bioLink && a.bioLink.link) || "",
         videoUrl: videoUrlFromItem(item),
+        videoUrls: videoUrlsFromItem(item),
         cookies: cookieString(res),
         via: "tiktok",
       };
@@ -215,7 +232,7 @@ export function looksLikeMp4(bytes) {
 async function tryDownload(url, headers) {
   try {
     const res = await fetch(url, { headers, redirect: "follow" });
-    if (!res.ok) return { error: "HTTP " + res.status };
+    if (!res.ok && res.status !== 206) return { error: "HTTP " + res.status };
     const len = Number(res.headers.get("content-length") || 0);
     if (len > MAX_BYTES) return { error: "too large" };
     const bytes = new Uint8Array(await res.arrayBuffer());
@@ -229,28 +246,32 @@ async function tryDownload(url, headers) {
 // Download the whole mp4 into memory and check it, trying each source in turn,
 // so a broken download becomes a clear error instead of a cut-off file.
 export async function fetchVideo(post) {
-  const attempts = [];
-  if (post.videoUrl && post.via !== "tikwm") {
-    const headers = { "User-Agent": DESKTOP_UA, "Referer": "https://www.tiktok.com/", "Accept": "*/*" };
-    if (post.cookies) headers.Cookie = post.cookies;
-    attempts.push(["tiktok", post.videoUrl, headers]);
-  }
-  let backup = post.via === "tikwm" ? { videoUrls: post.videoUrls || [post.videoUrl] } : null;
   const tried = [];
-  for (let i = 0; ; i++) {
-    if (i === attempts.length) {
-      if (!backup) backup = (await tikwm(post.url)) || { videoUrls: [] };
-      if (!backup.added) {
-        backup.added = true;
-        for (const u of backup.videoUrls || []) attempts.push(["backup", u, { "User-Agent": UA, "Accept": "*/*" }]);
-      }
-      if (i === attempts.length) break;
+  if (post.via !== "tikwm") {
+    const headers = {
+      "User-Agent": DESKTOP_UA,
+      "Referer": "https://www.tiktok.com/",
+      "Origin": "https://www.tiktok.com",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Range": "bytes=0-",
+    };
+    if (post.cookies) headers.Cookie = post.cookies;
+    const urls = (post.videoUrls && post.videoUrls.length ? post.videoUrls : [post.videoUrl]).filter(Boolean).slice(0, 4);
+    for (const [i, u] of urls.entries()) {
+      const r = await tryDownload(u, headers);
+      if (r.bytes) return r.bytes;
+      tried.push(`tiktok #${i + 1} (${new URL(u).hostname}): ${r.error}`);
     }
-    const [name, url, headers] = attempts[i];
-    const r = await tryDownload(url, headers);
-    if (r.bytes) return r.bytes;
-    tried.push(name + ": " + r.error);
   }
+  const backup = post.via === "tikwm" ? { videoUrls: post.videoUrls || [post.videoUrl] } : await tikwm(post.url);
+  if (backup.error) tried.push(backup.error);
+  for (const [i, u] of (backup.videoUrls || []).entries()) {
+    const r = await tryDownload(u, { "User-Agent": UA, "Accept": "*/*" });
+    if (r.bytes) return r.bytes;
+    tried.push(`backup #${i + 1}: ${r.error}`);
+  }
+  if (post.via !== "tikwm" && !/tt_chain_token/.test(post.cookies || "")) tried.push("no TikTok session cookie");
   console.log("video download failed", post.url, tried.join(" | "));
   throw new UserError("Couldn't download this video right now (" + (tried.join("; ") || "no file found") + "). Try again in a minute.", 502);
 }

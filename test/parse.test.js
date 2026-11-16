@@ -16,7 +16,7 @@ test("pulls the link out of share-sheet text", () => {
   assert.equal(idFromUrl("https://www.tiktok.com/@a/video/7312345678901234567?x=1"), "7312345678901234567");
 });
 
-test("reads the video page data", () => {
+test("reads the video page data", async () => {
   const html = page({
     "webapp.video-detail": { itemInfo: { itemStruct: {
       id: "7312345678901234567", desc: "Rat carrying a whole slice on the 1 train",
@@ -27,8 +27,9 @@ test("reads the video page data", () => {
   });
   const item = itemFromPage(html);
   assert.equal(item.author.uniqueId, "subwaycam");
-  assert.equal(videoUrlFromItem(item), "https://b/hi.mp4");
-  assert.equal(videoUrlFromItem({ video: { playAddr: "p", downloadAddr: "d" } }), "p");
+  assert.equal(videoUrlFromItem(item), "https://a/hi.mp4");
+  assert.deepEqual((await import("../src/tiktok.js")).videoUrlsFromItem({ video: { bitrateInfo: [{ Bitrate: 9, PlayAddr: { UrlList: ["https://www.tiktok.com/aweme/v1/play/?id=1", "https://v16.cdn/x.mp4"] } }], playAddr: "https://v19.cdn/p.mp4" } }), ["https://v16.cdn/x.mp4", "https://v19.cdn/p.mp4", "https://www.tiktok.com/aweme/v1/play/?id=1"]);
+  assert.equal(videoUrlFromItem({ video: { playAddr: "https://p/1.mp4", downloadAddr: "https://d/1.mp4" } }), "https://p/1.mp4");
   assert.equal(itemFromPage("<html>captcha</html>"), null);
   const user = userFromPage(page({ "webapp.user-detail": { userInfo: { user: { signature: "hi", bioLink: { link: "linktr.ee/x" } } } } }));
   assert.equal(user.bioLink.link, "linktr.ee/x");
@@ -114,7 +115,7 @@ test("video download checks for a real mp4 and falls back to the backup", async 
     return new Response("", { status: 404 });
   };
   try {
-    const bytes = await fetchVideo({ url: "https://www.tiktok.com/@a/video/7312345678901234567", videoUrl: "https://v16.tiktok/x.mp4", via: "tiktok", cookies: "a=b" });
+    const bytes = await fetchVideo({ url: "https://www.tiktok.com/@a/video/7312345678901234567", videoUrl: "https://v16.tiktok/x.mp4", videoUrls: ["https://v16.tiktok/x.mp4"], via: "tiktok", cookies: "a=b" });
     assert.equal(bytes.length, mp4.length);
     assert.deepEqual(calls.slice(-2), ["https://www.tikwm.com/hd.mp4", "https://cdn.x/play.mp4"]);
     globalThis.fetch = async () => new Response("<html>no</html>", { status: 200 });
