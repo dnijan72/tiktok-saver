@@ -40,6 +40,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .tag.warn{color:var(--accent)}
 details{font-size:14px;color:var(--muted)}
 [hidden]{display:none!important}
+.list{display:flex;flex-direction:column}
+.item{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--rule);background:none;color:inherit;border-radius:0;font-weight:400;text-align:left;width:100%}
+.item:first-child{border-top:0}
+.item .who{font-weight:600}
+.item .when{font-size:13px;color:var(--muted);white-space:nowrap}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--muted)}
+.dot.done{background:var(--ok)}.dot.error{background:var(--bad)}.dot.working{background:var(--accent)}
 </style>
 </head>
 <body>
@@ -71,6 +78,11 @@ details{font-size:14px;color:var(--muted)}
     <div class="status" id="status" role="status" aria-live="polite"></div>
   </div>
 
+  <div class="card" id="notifyCard" hidden>
+    <div class="meta" id="notifyText">Get a notification when each caption is ready, so you can leave the app while it works.</div>
+    <button id="notify" type="button">🔔 Turn on notifications</button>
+  </div>
+
   <div class="card" id="result" hidden>
     <div class="meta" id="meta"></div>
     <label for="caption">Caption</label>
@@ -81,6 +93,11 @@ details{font-size:14px;color:var(--muted)}
     </div>
     <div class="status" id="saveStatus" role="status" aria-live="polite"></div>
     <details id="more"><summary>TikTok caption and bio</summary><p id="raw"></p></details>
+  </div>
+
+  <div class="card" id="recentCard" hidden>
+    <label>Recent</label>
+    <div id="recent" class="list"></div>
   </div>
 
   <details>
@@ -112,27 +129,102 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
     return fetch(path,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(Object.assign({token},body))});
   }
 
+  function render(j){
+    lastUrl=j.url; lastName="tiktok-"+(j.tiktok||"video")+".mp4";
+    const ig=j.instagram?'<b>@'+esc(j.instagram)+'</b> on Instagram<span class="tag ok">from '+(j.instagramFoundIn==="bio"?"bio":"link in bio")+'</span>'
+      :'No Instagram found<span class="tag warn">crediting TikTok</span>';
+    $("meta").innerHTML='<div>Creator: <b>'+esc(j.tiktokName||"")+'</b> (@'+esc(j.tiktok||"?")+' on TikTok)</div><div>'+ig+'</div>'+(j.hasVideo?"":'<div class="status err">Video file not found. Caption still works.</div>');
+    $("caption").value=j.full||j.credit||"";
+    $("raw").innerHTML='<b>TikTok caption:</b> '+esc(j.tiktokCaption||"(none)")+'<br><b>Bio:</b> '+esc(j.bio||"(none)")+(j.bioLink?'<br><b>Link:</b> '+esc(j.bioLink):"");
+    $("result").hidden=false; $("save").disabled=!j.hasVideo;
+    say($("status"),j.captionError?"Caption didn't generate: "+j.captionError:"");
+    say($("saveStatus"),"");
+  }
+
+  let polling=null;
+  async function watch(id){
+    clearTimeout(polling);
+    try{
+      const r=await post("/api/job",{id}); const j=await r.json();
+      if(!j.ok) throw new Error(j.error||"Couldn't load that result.");
+      const job=j.job;
+      if(job.status==="working"){
+        say($("status"),(pushOn()?"Working on it. You can leave the app; you'll get a notification.":"Reading the TikTok and writing the caption…"));
+        polling=setTimeout(()=>watch(id),document.hidden?6000:2000); return;
+      }
+      $("go").disabled=false; loadRecent();
+      if(job.status==="error") throw new Error(job.error||"Something went wrong.");
+      render(job.result);
+      if(params.get("save")==="1"&&job.result.hasVideo) say($("saveStatus"),"Tap Save video to put it in Photos.");
+    }catch(e){ $("go").disabled=false; say($("status"),e.message,true); }
+  }
+
   $("go").onclick=async()=>{
     const url=$("link").value.trim();
     if(!token){ $("codeCard").hidden=false; say($("status"),"Enter your access code first.",true); return; }
     if(!url){ say($("status"),"Paste a TikTok link first.",true); return; }
-    $("go").disabled=true; $("result").hidden=true; say($("status"),"Reading the TikTok and writing the caption…");
+    $("go").disabled=true; $("result").hidden=true; say($("status"),"Starting…");
     try{
-      const r=await post("/api/info",{url,account:$("account").value,note:$("note").value.trim(),skipCaption:videoOnly});
+      const r=await post("/api/jobs",{url,account:$("account").value,note:$("note").value.trim(),skipCaption:videoOnly});
       const j=await r.json();
       if(!j.ok){ if(r.status===401){ $("codeCard").hidden=false; } throw new Error(j.error||"Something went wrong."); }
-      lastUrl=j.url; lastName="tiktok-"+(j.tiktok||"video")+".mp4";
-      const ig=j.instagram?'<b>@'+esc(j.instagram)+'</b> on Instagram<span class="tag ok">from '+(j.instagramFoundIn==="bio"?"bio":"link in bio")+'</span>'
-        :'No Instagram found<span class="tag warn">crediting TikTok</span>';
-      $("meta").innerHTML='<div>Creator: <b>'+esc(j.tiktokName||"")+'</b> (@'+esc(j.tiktok||"?")+' on TikTok)</div><div>'+ig+'</div>'+(j.hasVideo?"":'<div class="status err">Video file not found. Caption still works.</div>');
-      $("caption").value=j.full||j.credit||"";
-      $("raw").innerHTML='<b>TikTok caption:</b> '+esc(j.tiktokCaption||"(none)")+'<br><b>Bio:</b> '+esc(j.bio||"(none)")+(j.bioLink?'<br><b>Link:</b> '+esc(j.bioLink):"");
-      $("result").hidden=false; $("save").disabled=!j.hasVideo;
-      say($("status"),j.captionError?"Caption didn't generate: "+j.captionError:"");
-      say($("saveStatus"),"");
-    }catch(e){ say($("status"),e.message,true); }
-    finally{ $("go").disabled=false; }
+      try{ history.replaceState(null,"","/?job="+j.job.id); }catch(e){}
+      loadRecent(); watch(j.job.id);
+    }catch(e){ $("go").disabled=false; say($("status"),e.message,true); }
   };
+
+  async function loadRecent(){
+    if(!token) return;
+    try{
+      const r=await post("/api/recent",{}); const j=await r.json(); if(!j.ok) return;
+      const box=$("recent"); box.innerHTML="";
+      j.jobs.forEach(job=>{
+        const b=document.createElement("button"); b.type="button"; b.className="item";
+        const res=job.result||{}; const who=res.instagram?"@"+res.instagram:res.tiktok?"@"+res.tiktok:(job.url||"").split("//").pop().replace("www.","").slice(0,32);
+        const t=new Date(job.createdAt).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+        b.innerHTML='<span><span class="dot '+esc(job.status)+'"></span><span class="who">'+esc(who)+'</span></span><span class="when">'+esc(t)+'</span>';
+        b.onclick=()=>{ try{ history.replaceState(null,"","/?job="+job.id); }catch(e){} $("result").hidden=true; window.scrollTo(0,0); watch(job.id); };
+        box.appendChild(b);
+      });
+      $("recentCard").hidden=!j.jobs.length;
+    }catch(e){}
+  }
+
+  // Notifications (iPhone: only inside the home-screen app, iOS 16.4+)
+  const standalone=window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+  const canPush="serviceWorker" in navigator&&"PushManager" in window&&"Notification" in window;
+  const pushOn=()=>{ try{ return canPush&&Notification.permission==="granted"&&localStorage.getItem("ts_push")==="1"; }catch(e){ return false; } };
+  function paintNotify(){
+    if(!token){ $("notifyCard").hidden=true; return; }
+    if(pushOn()){ $("notifyCard").hidden=true; return; }
+    $("notifyCard").hidden=false;
+    if(!canPush||!standalone){
+      $("notifyText").textContent="To get notifications on iPhone: tap Share, then Add to Home Screen, then open TikTok Saver from its icon and turn them on there.";
+      $("notify").hidden=true;
+    }else if(Notification.permission==="denied"){
+      $("notifyText").textContent="Notifications are blocked. Turn them on in Settings, then Notifications, then TikTok Saver.";
+      $("notify").hidden=true;
+    }
+  }
+  function keyBytes(b64){ const s=b64.replace(/-/g,"+").replace(/_/g,"/"); const bin=atob(s+"===".slice((s.length+3)%4)); return Uint8Array.from(bin,c=>c.charCodeAt(0)); }
+  $("notify").onclick=async()=>{
+    $("notify").disabled=true;
+    try{
+      const perm=await Notification.requestPermission();
+      if(perm!=="granted") throw new Error("Notifications weren't allowed.");
+      const reg=await navigator.serviceWorker.ready;
+      const k=await (await fetch("/api/push-key")).json(); if(!k.ok) throw new Error(k.error);
+      let sub=await reg.pushManager.getSubscription();
+      if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(k.key)});
+      const r=await post("/api/subscribe",{subscription:sub.toJSON()}); const j=await r.json(); if(!j.ok) throw new Error(j.error);
+      try{ localStorage.setItem("ts_push","1"); }catch(e){}
+      $("notifyText").textContent="Notifications are on ✅"; $("notify").hidden=true;
+      setTimeout(paintNotify,2500);
+    }catch(e){ $("notifyText").textContent=e.message; }
+    finally{ $("notify").disabled=false; }
+  };
+  paintNotify();
+  $("saveCode").addEventListener("click",()=>{ paintNotify(); loadRecent(); });
 
   $("copy").onclick=async()=>{
     try{ await navigator.clipboard.writeText($("caption").value); $("copy").textContent="Copied ✓"; setTimeout(()=>$("copy").textContent="Copy caption",1500); }
@@ -161,7 +253,9 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
   };
 
   // Links from Claude: ?url=...&go=1 runs right away (caption=0 skips the caption, since Claude wrote it in chat).
-  if(params.get("url")&&params.get("go")==="1"&&token) $("go").click();
+  if(params.get("job")&&token) watch(params.get("job"));
+  else if(params.get("url")&&params.get("go")==="1"&&token) $("go").click();
+  loadRecent();
 })();
 </script>
 </body>

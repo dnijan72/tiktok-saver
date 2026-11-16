@@ -1,8 +1,9 @@
-import { getPost, getProfile, fetchVideo, UserError } from "./tiktok.js";
-import { findInstagram } from "./instagram.js";
-import { writeCaption, creditLine } from "./caption.js";
+import { getPost, fetchVideo, UserError } from "./tiktok.js";
+import { info } from "./info.js";
 import { PAGE } from "./page.js";
 import { ICONS, MANIFEST, SERVICE_WORKER } from "./assets.js";
+
+const jobsStub = (env) => env.JOBS.get(env.JOBS.idFromName("main"));
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 
@@ -30,46 +31,6 @@ async function readBody(request) {
 function authorized(request, body, env) {
   const header = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   return safeEqual(body.token || header, env.ACCESS_TOKEN);
-}
-
-async function info(body, env) {
-  const post = await getPost(body.url);
-  let { signature, bioLink } = post;
-  if (!signature && !bioLink) ({ signature, bioLink } = await getProfile(post.handle));
-  const ig = await findInstagram({ signature, bioLink });
-  const credit = creditLine(ig.handle, post.handle);
-
-  let caption = "";
-  let captionError = null;
-  if (body.skipCaption) {
-    // Claude wrote the caption in chat; only the video and credit are needed.
-  } else if (env.ANTHROPIC_API_KEY) {
-    try {
-      caption = await writeCaption(env, { account: body.account, desc: post.desc, nickname: post.nickname, handle: post.handle, note: body.note });
-    } catch (e) {
-      captionError = String(e.message || e);
-    }
-  } else {
-    captionError = "ANTHROPIC_API_KEY isn't set in Cloudflare yet.";
-  }
-
-  return {
-    ok: true,
-    caption,
-    credit,
-    full: [caption, credit].filter(Boolean).join("\n\n"),
-    tiktok: post.handle,
-    tiktokName: post.nickname,
-    instagram: ig.handle,
-    instagramFoundIn: ig.source, // "bio", "link" or null
-    tiktokCaption: post.desc,
-    bio: signature,
-    bioLink,
-    hasVideo: !!post.videoUrl,
-    via: post.via,
-    url: post.url,
-    captionError,
-  };
 }
 
 async function video(body) {
@@ -107,6 +68,34 @@ export default {
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
       return json({ ok: true, captions: !!env.ANTHROPIC_API_KEY, locked: !!env.ACCESS_TOKEN });
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/push-key") {
+      if (!env.JOBS) return json({ ok: false, error: "Notifications aren't set up." }, 500);
+      return json({ ok: true, key: await jobsStub(env).publicKey() });
+    }
+
+    if (request.method === "POST" && ["/api/subscribe", "/api/jobs", "/api/job", "/api/recent"].includes(url.pathname)) {
+      if (!env.ACCESS_TOKEN) return json({ ok: false, error: "ACCESS_TOKEN isn't set in Cloudflare yet." }, 500);
+      const body = await readBody(request);
+      if (!authorized(request, body, env)) return json({ ok: false, error: "Wrong access code." }, 401);
+      if (!env.JOBS) return json({ ok: false, error: "Background jobs aren't set up." }, 500);
+      const stub = jobsStub(env);
+      try {
+        if (url.pathname === "/api/subscribe") return json({ ok: true, devices: await stub.subscribe(body.subscription) });
+        if (url.pathname === "/api/jobs") {
+          if (!body.url) throw new UserError("Paste a TikTok link first.");
+          const input = { url: String(body.url).slice(0, 500), account: body.account, note: String(body.note || "").slice(0, 300), skipCaption: !!body.skipCaption };
+          return json({ ok: true, job: await stub.create(input) });
+        }
+        if (url.pathname === "/api/job") {
+          const job = await stub.get(String(body.id || ""));
+          return job ? json({ ok: true, job }) : json({ ok: false, error: "That result has expired." }, 404);
+        }
+        return json({ ok: true, jobs: await stub.recent(10) });
+      } catch (e) {
+        return json({ ok: false, error: e instanceof UserError ? e.message : String(e.message || e) }, e instanceof UserError ? e.status : 400);
+      }
     }
 
     if (request.method === "POST" && (url.pathname === "/api/info" || url.pathname === "/api/video")) {

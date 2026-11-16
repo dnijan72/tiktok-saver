@@ -11,10 +11,15 @@ Runs on Cloudflare Workers (free plan).
 - **Web page:** open the workers.dev link on your phone, enter the access code once, paste a TikTok link.
 - **iPhone Shortcut:** share a TikTok → the shortcut saves the video to Photos and copies the caption. Setup steps are in `SHORTCUT.md`.
 
+## Notifications
+Add the page to your iPhone home screen (Share → Add to Home Screen), open it from the icon, tap **Turn on notifications**. Each link then runs in the background and you get a notification when the caption is ready; tapping it opens that result. Needs iOS 16.4+.
+
 ## API
 Both endpoints take JSON `{ "url": "<tiktok link>", "token": "<ACCESS_TOKEN>" }` (or `Authorization: Bearer <token>`).
 - `POST /api/info` – also accepts `account` (`newyorkers` default, `newyorklocals`, `nysports`, `apartmentsnyc`) and `note`. Returns `{ caption, credit, full, tiktok, instagram, instagramFoundIn, hasVideo, ... }`. `full` is caption + credit, ready to paste.
 - `POST /api/video` – returns the mp4.
+- `POST /api/jobs` – same input as /api/info, runs in the background, returns `{ job: { id, status } }`. Poll `POST /api/job {id}`; `POST /api/recent` lists the last 10.
+- `POST /api/subscribe {subscription}` – saves a Web Push subscription. `GET /api/push-key` – the VAPID public key.
 - `GET /api/health` – shows whether the secrets are set.
 
 ## Setup (Cloudflare)
