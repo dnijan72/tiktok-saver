@@ -108,8 +108,10 @@ async function tikwm(url) {
     if (Array.isArray(d.images) && d.images.length) {
       return { photo: true, desc: d.title || "", handle: d.author && d.author.unique_id, nickname: d.author && d.author.nickname };
     }
+    const urls = [abs(d.hdplay), abs(d.play), abs(d.wmplay)].filter(Boolean);
     return {
-      videoUrl: abs(d.hdplay) || abs(d.play),
+      videoUrl: urls[0],
+      videoUrls: urls,
       desc: d.title || "",
       handle: d.author && d.author.unique_id,
       nickname: d.author && d.author.nickname,
@@ -171,6 +173,7 @@ export async function getPost(input) {
     if (t && t.videoUrl) {
       post = Object.assign({ url, id, signature: "", bioLink: "", cookies: "" }, post || {}, {
         videoUrl: t.videoUrl,
+        videoUrls: t.videoUrls,
         desc: (post && post.desc) || t.desc,
         handle: (post && post.handle) || t.handle || handleFromUrl(url),
         nickname: (post && post.nickname) || t.nickname || "",
@@ -200,17 +203,54 @@ export async function getProfile(handle) {
   }
 }
 
-// Stream the mp4. TikTok's video servers want the cookies and referer from the page visit.
-export async function fetchVideo(post) {
-  if (!post.videoUrl) throw new UserError("Found the post, but TikTok didn't hand over the video file. Try again in a minute.", 502);
-  const headers = { "User-Agent": DESKTOP_UA, "Referer": "https://www.tiktok.com/", "Accept": "*/*" };
-  if (post.cookies) headers.Cookie = post.cookies;
-  let res = await fetch(post.videoUrl, { headers });
-  if (!res.ok || !(res.headers.get("content-type") || "").match(/video|octet-stream/)) {
-    // One retry through the backup service if TikTok refused the file.
-    const t = post.via === "tikwm" ? null : await tikwm(post.url);
-    if (t && t.videoUrl) res = await fetch(t.videoUrl, { headers: { "User-Agent": UA } });
+const MAX_BYTES = 95 * 1024 * 1024;
+
+// True when the bytes are an mp4 (has an "ftyp" box near the start).
+export function looksLikeMp4(bytes) {
+  if (!bytes || bytes.length < 50000) return false;
+  const head = String.fromCharCode(...bytes.slice(0, 64));
+  return head.includes("ftyp");
+}
+
+async function tryDownload(url, headers) {
+  try {
+    const res = await fetch(url, { headers, redirect: "follow" });
+    if (!res.ok) return { error: "HTTP " + res.status };
+    const len = Number(res.headers.get("content-length") || 0);
+    if (len > MAX_BYTES) return { error: "too large" };
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (!looksLikeMp4(bytes)) return { error: "not a video (" + (res.headers.get("content-type") || "?") + ", " + bytes.length + " bytes)" };
+    return { bytes };
+  } catch (e) {
+    return { error: String((e && e.message) || e) };
   }
-  if (!res.ok) throw new UserError("TikTok refused the video download (" + res.status + "). Try again in a minute.", 502);
-  return res;
+}
+
+// Download the whole mp4 into memory and check it, trying each source in turn,
+// so a broken download becomes a clear error instead of a cut-off file.
+export async function fetchVideo(post) {
+  const attempts = [];
+  if (post.videoUrl && post.via !== "tikwm") {
+    const headers = { "User-Agent": DESKTOP_UA, "Referer": "https://www.tiktok.com/", "Accept": "*/*" };
+    if (post.cookies) headers.Cookie = post.cookies;
+    attempts.push(["tiktok", post.videoUrl, headers]);
+  }
+  let backup = post.via === "tikwm" ? { videoUrls: post.videoUrls || [post.videoUrl] } : null;
+  const tried = [];
+  for (let i = 0; ; i++) {
+    if (i === attempts.length) {
+      if (!backup) backup = (await tikwm(post.url)) || { videoUrls: [] };
+      if (!backup.added) {
+        backup.added = true;
+        for (const u of backup.videoUrls || []) attempts.push(["backup", u, { "User-Agent": UA, "Accept": "*/*" }]);
+      }
+      if (i === attempts.length) break;
+    }
+    const [name, url, headers] = attempts[i];
+    const r = await tryDownload(url, headers);
+    if (r.bytes) return r.bytes;
+    tried.push(name + ": " + r.error);
+  }
+  console.log("video download failed", post.url, tried.join(" | "));
+  throw new UserError("Couldn't download this video right now (" + (tried.join("; ") || "no file found") + "). Try again in a minute.", 502);
 }

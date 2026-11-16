@@ -144,8 +144,8 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
     $("caption").value=j.full||j.credit||"";
     $("raw").innerHTML='<b>TikTok caption:</b> '+esc(j.tiktokCaption||"(none)")+'<br><b>Bio:</b> '+esc(j.bio||"(none)")+(j.bioLink?'<br><b>Link:</b> '+esc(j.bioLink):"");
     $("result").hidden=false; $("save").disabled=!j.hasVideo;
+    if(j.hasVideo) setTimeout(()=>prefetch(j.url),0);
     say($("status"),j.captionError?"Caption didn't generate: "+j.captionError:"");
-    say($("saveStatus"),"");
   }
 
   let current={};
@@ -255,25 +255,56 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
     catch(e){ $("caption").select(); say($("saveStatus"),"Select the text and copy it.",true); }
   };
 
+  // The video downloads in the background as soon as a result shows, so the Save tap
+  // can open the share sheet right away (Safari only allows that straight after a tap).
+  let vid={url:null,file:null,promise:null,error:null};
+  function prefetch(url){
+    if(vid.url===url&&(vid.file||vid.promise)) return vid.promise;
+    vid={url,file:null,error:null,promise:null};
+    say($("saveStatus"),"Downloading the video…"); $("save").textContent="Save video";
+    vid.promise=(async()=>{
+      let lastErr=null;
+      for(let attempt=0;attempt<2;attempt++){
+        try{
+          const r=await post("/api/video",{url});
+          if(!r.ok){ let m="Download failed."; try{ m=(await r.json()).error||m; }catch(e){} throw new Error(m); }
+          const blob=await r.blob();
+          if(blob.size<50000) throw new Error("The video came back empty.");
+          const name=r.headers.get("x-filename")||lastName;
+          if(vid.url!==url) return;
+          vid.file=new File([blob],name,{type:"video/mp4"});
+          say($("saveStatus"),"Video ready ("+(blob.size/1048576).toFixed(1)+" MB). Tap Save video.");
+          return;
+        }catch(e){
+          lastErr=e;
+          if(/load failed|network|fetch/i.test(String(e&&e.message))&&attempt===0){ say($("saveStatus"),"Connection dropped, retrying…"); continue; }
+          break;
+        }
+      }
+      if(vid.url!==url) return;
+      vid.error=/load failed|network|fetch/i.test(String(lastErr&&lastErr.message))?"The download got cut off. Check your connection and tap Save video to try again.":(lastErr&&lastErr.message)||"Download failed.";
+      say($("saveStatus"),vid.error,true);
+    })();
+    return vid.promise;
+  }
+
   $("save").onclick=async()=>{
     if(!lastUrl) return;
-    $("save").disabled=true; say($("saveStatus"),"Downloading the video…");
+    if(vid.url!==lastUrl||vid.error){ vid.url=null; prefetch(lastUrl); return; }
+    if(!vid.file){ say($("saveStatus"),"Still downloading. It'll say when it's ready."); return; }
+    const file=vid.file;
     try{
-      const r=await post("/api/video",{url:lastUrl});
-      if(!r.ok){ let m="Download failed."; try{ m=(await r.json()).error||m; }catch(e){} throw new Error(m); }
-      const blob=await r.blob();
-      const name=r.headers.get("x-filename")||lastName;
-      const file=new File([blob],name,{type:"video/mp4"});
       if(navigator.canShare&&navigator.canShare({files:[file]})){
-        say($("saveStatus"),"Tap Save Video in the share sheet.");
         await navigator.share({files:[file]});
-        say($("saveStatus"),"Saved. It's in your Photos.");
+        say($("saveStatus"),"Saved. Check Photos.");
       }else{
-        const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove();
+        const a=document.createElement("a"); a.href=URL.createObjectURL(file); a.download=file.name; document.body.appendChild(a); a.click(); a.remove();
         say($("saveStatus"),"Downloaded.");
       }
-    }catch(e){ if(e&&e.name==="AbortError") say($("saveStatus"),""); else say($("saveStatus"),e.message,true); }
-    finally{ $("save").disabled=false; }
+    }catch(e){
+      if(e&&e.name==="AbortError") say($("saveStatus"),"Video ready. Tap Save video, then Save Video.");
+      else say($("saveStatus"),"Couldn't open the share sheet ("+e.message+"). Tap Save video again.",true);
+    }
   };
 
   // Links from Claude: ?url=...&go=1 runs right away (caption=0 skips the caption, since Claude wrote it in chat).

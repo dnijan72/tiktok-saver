@@ -35,17 +35,19 @@ function authorized(request, body, env) {
 
 async function video(body) {
   const post = await getPost(body.url);
-  const upstream = await fetchVideo(post);
+  const bytes = await fetchVideo(post);
   const name = `tiktok-${(post.handle || "video").replace(/[^A-Za-z0-9._-]/g, "")}-${post.id || Date.now()}.mp4`;
-  const headers = new Headers({
-    "content-type": "video/mp4",
-    "content-disposition": `attachment; filename="${name}"`,
-    "cache-control": "no-store",
-    "x-filename": name,
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "content-type": "video/mp4",
+      "content-disposition": `attachment; filename="${name}"`,
+      "content-length": String(bytes.length),
+      "cache-control": "no-store",
+      "x-filename": name,
+      "access-control-expose-headers": "x-filename",
+    },
   });
-  const len = upstream.headers.get("content-length");
-  if (len) headers.set("content-length", len);
-  return new Response(upstream.body, { status: 200, headers });
 }
 
 export default {
