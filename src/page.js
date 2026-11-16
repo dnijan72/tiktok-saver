@@ -5,30 +5,30 @@ export const PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="TikTok Saver">
-<meta name="theme-color" content="#e2512a">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <title>TikTok Saver</title>
 <style>
-:root{--bg:#f4f4f1;--card:#fff;--ink:#141518;--muted:#62666f;--rule:#dcdcd6;--accent:#e2512a;--ok:#1f7a4d;--bad:#b3261e;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#111214;--card:#1b1d21;--ink:#ececee;--muted:#9a9ea8;--rule:#2e3138;--accent:#f27448;--ok:#5cc98f;--bad:#f2837a;color-scheme:dark}}
+:root{--bg:#000;--card:#121214;--ink:#fff;--muted:#a3a3ad;--rule:#2a2a30;--accent:#fe2c55;--cyan:#25f4ee;--ok:#25f4ee;--bad:#ff6b81;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 .wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
 h1{font-size:26px;letter-spacing:-.01em;margin:4px 0 0}
-h1 span{color:var(--accent)}
+h1{text-shadow:-1.5px -1.5px 0 var(--cyan),1.5px 1.5px 0 var(--accent)}
+h1 span{color:#fff}
 .card{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
 label{font-size:13px;color:var(--muted);font-weight:600}
 input,select,textarea{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--rule);border-radius:10px;padding:11px 12px;width:100%}
 textarea{min-height:150px;resize:vertical}
 .row{display:flex;gap:8px}
 .row>*{flex:1}
-button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 14px;background:var(--ink);color:var(--bg);cursor:pointer}
+button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:12px 14px;background:var(--ink);color:var(--bg);cursor:pointer}
 button.ghost{background:transparent;color:var(--ink);border:1px solid var(--rule)}
-button.accent{background:var(--accent);color:#fff}
+button.accent{background:var(--accent);color:#fff;box-shadow:-3px -3px 0 var(--cyan)}
 button:disabled{opacity:.5}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .status{font-size:14px;color:var(--muted);min-height:1.2em}
@@ -73,7 +73,7 @@ details{font-size:14px;color:var(--muted)}
         <option value="apartmentsnyc">@apartmentsnyc</option>
       </select>
     </div>
-    <input id="note" type="text" placeholder="Optional: what happens in the video (helps the caption)">
+    <input id="note" type="text" placeholder="Optional: what happens in the video">
     <button class="accent" id="go" type="button">Get caption + video</button>
     <div class="status" id="status" role="status" aria-live="polite"></div>
   </div>
