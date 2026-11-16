@@ -5,7 +5,11 @@ export const PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="TikTok Saver">
-<meta name="theme-color" content="#111214">
+<meta name="theme-color" content="#e2512a">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <title>TikTok Saver</title>
 <style>
 :root{--bg:#f4f4f1;--card:#fff;--ink:#141518;--muted:#62666f;--rule:#dcdcd6;--accent:#e2512a;--ok:#1f7a4d;--bad:#b3261e;color-scheme:light}
@@ -85,6 +89,7 @@ details{font-size:14px;color:var(--muted)}
   </details>
 </div>
 <script>
+if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(()=>{});
 (function(){
   const $=(id)=>document.getElementById(id);
   let token=""; try{ token=localStorage.getItem("ts_code")||""; }catch(e){}

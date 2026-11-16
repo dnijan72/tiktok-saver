@@ -75,3 +75,14 @@ test("API needs the access code", async () => {
   assert.equal(r.status, 200);
   assert.match(await r.text(), /TikTok <span>Saver<\/span>/);
 });
+
+test("serves the app icon and manifest", async () => {
+  let r = await worker.fetch(new Request("https://x.dev/apple-touch-icon.png"), {});
+  assert.equal(r.headers.get("content-type"), "image/png");
+  const b = new Uint8Array(await r.arrayBuffer());
+  assert.deepEqual([...b.slice(1, 4)], [80, 78, 71]);
+  r = await worker.fetch(new Request("https://x.dev/manifest.webmanifest"), {});
+  assert.equal(JSON.parse(await r.text()).display, "standalone");
+  r = await worker.fetch(new Request("https://x.dev/"), {});
+  assert.match(await r.text(), /apple-touch-icon/);
+});

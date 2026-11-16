@@ -2,6 +2,7 @@ import { getPost, getProfile, fetchVideo, UserError } from "./tiktok.js";
 import { findInstagram } from "./instagram.js";
 import { writeCaption, creditLine } from "./caption.js";
 import { PAGE } from "./page.js";
+import { ICONS, MANIFEST, SERVICE_WORKER } from "./assets.js";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 
@@ -92,6 +93,17 @@ export default {
 
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return new Response(PAGE, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    }
+    const icon = request.method === "GET" && url.pathname.match(/^\/(?:icon-(180|192|512)|apple-touch-icon(?:-precomposed)?)\.png$/);
+    if (icon) {
+      const bytes = Uint8Array.from(atob(ICONS[icon[1] || "180"]), (c) => c.charCodeAt(0));
+      return new Response(bytes, { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
+    }
+    if (request.method === "GET" && url.pathname === "/manifest.webmanifest") {
+      return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json" } });
+    }
+    if (request.method === "GET" && url.pathname === "/sw.js") {
+      return new Response(SERVICE_WORKER, { headers: { "content-type": "text/javascript", "cache-control": "no-cache" } });
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
       return json({ ok: true, captions: !!env.ANTHROPIC_API_KEY, locked: !!env.ACCESS_TOKEN });
