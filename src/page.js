@@ -92,7 +92,7 @@ details{font-size:14px;color:var(--muted)}
     <textarea id="caption"></textarea>
     <div class="row">
       <button id="copy" type="button">Copy caption</button>
-      <button class="accent" id="save" type="button">Save video</button>
+      <button class="accent" id="save" type="button">Download video</button>
     </div>
     <div class="status" id="saveStatus" role="status" aria-live="polite"></div>
     <details id="more"><summary>TikTok caption and bio</summary><p id="raw"></p></details>
@@ -144,7 +144,7 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
     $("caption").value=j.full||j.credit||"";
     $("raw").innerHTML='<b>TikTok caption:</b> '+esc(j.tiktokCaption||"(none)")+'<br><b>Bio:</b> '+esc(j.bio||"(none)")+(j.bioLink?'<br><b>Link:</b> '+esc(j.bioLink):"");
     $("result").hidden=false; $("save").disabled=!j.hasVideo;
-    if(j.hasVideo) setTimeout(()=>prefetch(j.url),0);
+    if(vid.url!==j.url){ vid={url:null,file:null,promise:null,error:null}; setSave("download"); say($("saveStatus"),""); }
     say($("status"),j.captionError?"Caption didn't generate: "+j.captionError:"");
   }
 
@@ -255,25 +255,38 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
     catch(e){ $("caption").select(); say($("saveStatus"),"Select the text and copy it.",true); }
   };
 
-  // The video downloads in the background as soon as a result shows, so the Save tap
-  // can open the share sheet right away (Safari only allows that straight after a tap).
+  // Two taps: "Download video" fetches the file, then the button turns into "Save video",
+  // which opens the share sheet (Safari only allows that straight after a tap).
   let vid={url:null,file:null,promise:null,error:null};
-  function prefetch(url){
-    if(vid.url===url&&(vid.file||vid.promise)) return vid.promise;
+  function setSave(state,pct){
+    const b=$("save");
+    b.dataset.state=state;
+    b.disabled=state==="loading";
+    b.textContent=state==="loading"?("Downloading…"+(pct!=null?" "+pct+"%":"")):state==="ready"?"Save video":state==="retry"?"Try again":"Download video";
+  }
+  async function readWithProgress(r){
+    const total=Number(r.headers.get("content-length")||0);
+    if(!r.body||!r.body.getReader||!total) return r.blob();
+    const reader=r.body.getReader(); const parts=[]; let got=0;
+    for(;;){ const {done,value}=await reader.read(); if(done) break; parts.push(value); got+=value.length; setSave("loading",Math.min(99,Math.round(got*100/total))); }
+    return new Blob(parts,{type:"video/mp4"});
+  }
+  function download(url){
     vid={url,file:null,error:null,promise:null};
-    say($("saveStatus"),"Downloading the video…"); $("save").textContent="Save video";
+    setSave("loading"); say($("saveStatus"),"");
     vid.promise=(async()=>{
       let lastErr=null;
       for(let attempt=0;attempt<2;attempt++){
         try{
           const r=await post("/api/video",{url});
           if(!r.ok){ let m="Download failed."; try{ m=(await r.json()).error||m; }catch(e){} throw new Error(m); }
-          const blob=await r.blob();
+          const blob=await readWithProgress(r);
           if(blob.size<50000) throw new Error("The video came back empty.");
           const name=r.headers.get("x-filename")||lastName;
           if(vid.url!==url) return;
           vid.file=new File([blob],name,{type:"video/mp4"});
-          say($("saveStatus"),"Video ready ("+(blob.size/1048576).toFixed(1)+" MB). Tap Save video.");
+          setSave("ready");
+          say($("saveStatus"),"Downloaded ("+(blob.size/1048576).toFixed(1)+" MB). Tap Save video.");
           return;
         }catch(e){
           lastErr=e;
@@ -282,16 +295,15 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
         }
       }
       if(vid.url!==url) return;
-      vid.error=/load failed|network|fetch/i.test(String(lastErr&&lastErr.message))?"The download got cut off. Check your connection and tap Save video to try again.":(lastErr&&lastErr.message)||"Download failed.";
-      say($("saveStatus"),vid.error,true);
+      vid.error=/load failed|network|fetch/i.test(String(lastErr&&lastErr.message))?"The download got cut off. Check your connection and try again.":(lastErr&&lastErr.message)||"Download failed.";
+      setSave("retry"); say($("saveStatus"),vid.error,true);
     })();
     return vid.promise;
   }
 
   $("save").onclick=async()=>{
     if(!lastUrl) return;
-    if(vid.url!==lastUrl||vid.error){ vid.url=null; prefetch(lastUrl); return; }
-    if(!vid.file){ say($("saveStatus"),"Still downloading. It'll say when it's ready."); return; }
+    if($("save").dataset.state!=="ready"||!vid.file||vid.url!==lastUrl){ download(lastUrl); return; }
     const file=vid.file;
     try{
       if(navigator.canShare&&navigator.canShare({files:[file]})){
@@ -302,7 +314,7 @@ if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catc
         say($("saveStatus"),"Downloaded.");
       }
     }catch(e){
-      if(e&&e.name==="AbortError") say($("saveStatus"),"Video ready. Tap Save video, then Save Video.");
+      if(e&&e.name==="AbortError") say($("saveStatus"),"Tap Save video, then Save Video in the share sheet.");
       else say($("saveStatus"),"Couldn't open the share sheet ("+e.message+"). Tap Save video again.",true);
     }
   };
